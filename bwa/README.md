@@ -6,17 +6,17 @@ Building the docker image
 -------------------------
 To build:
 ```
-   docker build -t organization/bwa:0.7.15 .
+   docker build -t bwa:0.7.15 .
 ```
 
 To tag your build for pushing to GCR:
 ```
-   docker tag organization/bwa:0.7.15 gcr.io/your-project-id/bwa/0.7.15
+   docker tag bwa:0.7.15 gcr.io/your-project-id/bwa/0.7.15
 ```
 
 To push the image to GCR:
 ```
-   gcloud docker push gcr.io/your-project-id/bwa/0.7.15
+   gcloud docker push gcr.io/{PROJECT}/bwa/0.7.15
 ```
 
 
