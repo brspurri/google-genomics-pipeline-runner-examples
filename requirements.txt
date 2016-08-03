@@ -1,0 +1,4 @@
+mando
+oauth2client
+google-api-python-client
+google-genomics-pipeline-runner
