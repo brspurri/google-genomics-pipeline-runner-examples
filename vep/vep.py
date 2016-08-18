@@ -24,20 +24,21 @@ def vep(cache_bunde=None,
 
         python vep.py vep \
             --project genomics-986
-            --fastq gs://brettspurrier-test/input_fastq_a.fastq.gz
-            --fastq gs://brettspurrier-test/input_fastq_b.fastq.gz
+            --cache_bundle gs://brettspurrier-geomes/homo_sapiens/vep/homo_sampiens_vep_cache.tar.gz
+            --cache_version 85
+            --species homo_sapiens
+            --vcf gs://brettspurrier-test/mytest_vcf.vcf
             --storage_output gs://brettspurrier-data
             --storage_logging gs://brettspurrier-logs
-            --reference_bundle gs://brettspurrier-genomes/homo_sapiens/grch38/reference_bwa.tar.gz
-            --reference genome.fa
 
-    :param reference_bundle: Google Storage path for the reference genome files.
-    :param reference: Reference genome basename. Fasta basename once extracted from reference_bundle.
-    :param fastq: List of Google Storage paths for the input fastq files.
+    :param cache_bunde: Google Storage path for the VEP cache archive.
+    :param cache_version: Ensembl VEP cache_bunde version.
+    :param species: Species prefix for the cache.
+    :param vcf: List of Google Storage paths for the input VCF files.
     :param project: Google Project name.
     :param storage_output: Google Storage bucket for the output data.
     :param storage_logging: Google Storage bucket for the log files.
-    :param extra_command_flags: Extra flags to pass to BWA MEM.
+    :param extra_command_flags: Extra flags to pass to VEP.
     """
 
     # Get your Google Credentials from your local system
@@ -95,7 +96,7 @@ def vep(cache_bunde=None,
     p = Pipeline(
         credentials,
         project,
-        'bwa_test_pipeline',
+        'vep_test_pipeline',
         'gcr.io/{project}/vep/85'.format(project=project),
         storage_output,
         storage_logging,
@@ -123,7 +124,7 @@ def vep(cache_bunde=None,
     #    single VCF file, however, this can easily be
     #    modified to loop over several input VCFs.
     # ---------------------------------------------------
-    #  Create the output directory, cd into it and run BWA mem.
+    #  Create the output directory, cd into it and run VEP.
     #  ------
     #    mkdir -p /mnt/data/output
     #    cd /mnt/data/output
