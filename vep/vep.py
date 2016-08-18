@@ -125,7 +125,6 @@ def vep(species_cache_bunde=None,
     #       --cache_version 85 \
     #       --dir_cache /cache/ \
     #       --offline
-    #  perl /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/variant_effect_predictor.pl --species homo_sapiens --input_file /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/example_GRCh38.vcf --force --cache --cache_version 85  --dir_cache /mnt/data/input/ --offline --output_file /mnt/data/input/test.json --json
     #  ------
     cmd = 'mkdir -p {mount}/output; '.format(mount=mount)
     cmd += 'tar zxvf {mount}/input/{species_cache_bunde} -C {mount}/input/; '.format(

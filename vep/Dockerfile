@@ -95,4 +95,4 @@ RUN git clone https://github.com/brspurri/vax /tools/vep/vax
 RUN cp /tools/vep/vax/VAX_DIR/Plugins/*.pm /tools/vep/plugins/
 
 # Set the working directory
-#WORKDIR /mnt/data/input
+WORKDIR /mnt/data/input
