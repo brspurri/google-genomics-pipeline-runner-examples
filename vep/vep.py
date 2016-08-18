@@ -1,228 +1,157 @@
-#!/usr/bin/python
-
-#
-# The MIT License (MIT)
-# Copyright (c) 2016 Brett Spurrier
-#
-# Permission is hereby granted, free of charge, to any person obtaining a
-# copy of this software and associated documentation files (the "Software"),
-# to deal in the Software without restriction, including without limitation
-# the rights to use, copy, modify, merge, publish, distribute, sublicense,
-# and/or sell copies of the Software, and to permit persons to whom the
-# Software is furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included
-# in all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#
-
-"""Python sample demonstrating use of the Google Genomics Pipelines API.
-
-https://github.com/googlegenomics/pipelines-api-examples
-
-This sample demonstrates running Variant Effecrt Predictor (http://www.htslib.org/) over one
-or more input VCF files stored in Google Cloud Storage.
-
-This sample demonstrates running the pipeline in an "ephemeral" manner;
-no call to pipelines.create() is necessary. No pipeline is persisted
-in the pipelines list.
-
-Usage:
-  * python vep.py \
-      --project <project-id> \
-      --zones <gce-zones> \
-      --disk-size <size-in-gb> \
-      --vcd <gcs-input-path-to-vcf> \
-      --output <gcs-output-path> \
-      --logging <gcs-logging-path> \
-      --poll-interval <interval-in-seconds>
-
-Where the poll-interval is optional (default is no polling).
-
-Users will typically want to restrict the Compute Engine zones to avoid Cloud
-Storage egress charges. This script supports a short-hand pattern-matching
-for specifying zones, such as:
-
-  --zones "*"                # All zones
-  --zones "us-*"             # All US zones
-  --zones "us-central1-*"    # All us-central1 zones
-
-an explicit list may be specified, space-separated:
-  --zones us-central1-a us-central1-b
-"""
 import os
 import sys
+import json
 
 from mando import command, main
-
 from oauth2client.client import GoogleCredentials
-from googleapiclient.discovery import build
-
-# Set the global scope variables
-CREDENTIALS = GoogleCredentials.get_application_default()
+from pipeline_runner import Pipeline
 
 
 @command('vep')
-def vep(project=None,
+def vep(species_cache_bunde=None,
+        species_cache_version=None,
         vcf=list(),
-        disk_size=None,
-        memory=1,
-        storage_logging=None,
+        project=None,
         storage_output=None,
-        input_directory='input',
-        output_directory='output',
-        docker_image=None,
-        run_name=None,
-        poll_interval=0):
+        storage_logging=None,
+        extra_command_flags=None):
     """
-    Run Emsembl Variant Effect Predictor (VEP) on Google Genomics Pipeline API
+    Ensembl Variant Effect Predictor (VEP) runner for Google Genomics Pipeline API.
+    Executes: `variant_effect_predictor.pl ...`
+
+    Example usage:
+
+        python vep.py vep \
+            --project genomics-986
+            --fastq gs://brettspurrier-test/input_fastq_a.fastq.gz
+            --fastq gs://brettspurrier-test/input_fastq_b.fastq.gz
+            --storage_output gs://brettspurrier-data
+            --storage_logging gs://brettspurrier-logs
+            --reference_bundle gs://brettspurrier-genomes/homo_sapiens/grch38/reference_bwa.tar.gz
+            --reference genome.fa
+
+    :param reference_bundle: Google Storage path for the reference genome files.
+    :param reference: Reference genome basename. Fasta basename once extracted from reference_bundle.
+    :param fastq: List of Google Storage paths for the input fastq files.
+    :param project: Google Project name.
+    :param storage_output: Google Storage bucket for the output data.
+    :param storage_logging: Google Storage bucket for the log files.
+    :param extra_command_flags: Extra flags to pass to BWA MEM.
     """
 
-    # Specify a default run name
-    if not run_name:
-        run_name = 'vep'
+    # Get your Google Credentials from your local system
+    credentials = GoogleCredentials.get_application_default()
 
-    # If no docker image is specified, then default to Google Container Repository
-    if not docker_image:
-        docker_image = 'gcr.io/{project}/vep/85'.format(project=project)
+    # Make sure a Google project name has been passed
+    if not project:
+        sys.stderr.write(('Please provide a Google Project name by passing the '
+                          '`--project {MyGoogleProject}` argument.'))
+        sys.exit(1)
 
-    # Set the mount points and input and out folders (on the VM)
-    mount_point = '/mnt/data'
-    input_mount_point = '{}/{}'.format(mount_point, input_directory)
-    output_mount_point = '{}/{}'.format(mount_point, output_directory)
-    sys.stdout.write('Mounting: {}\n'.format(input_mount_point))
-    sys.stdout.write('Mounting: {}\n'.format(output_mount_point))
+    # Make sure a reference bundle genome has been passed
+    if not species_cache_bunde:
+        sys.stderr.write(('Please provide a species cache by passing the '
+                          '`--species_cache_bunde gs://{bucket}/{vep_cache}.tar.gz` argument. '
+                          'Example cache: '
+                          'ftp://ftp.ensembl.org/pub/release-85/variation/VEP/homo_sapiens_vep_85_GRCh38.tar.gz'))
+        sys.exit(1)
 
-    # Set the name of the disk
-    disk_name = 'datadisk'
+    # Make sure a reference genome has been passed
+    if not species_cache_version:
+        sys.stderr.write(('Please provide a species cache version by passing the '
+                          '`--species_cache_version {cache_version}` argument.'))
+        sys.exit(1)
 
-    # Build the samtools index command
-    cmd = ('mkdir -p /mnt/data/output && '
-           'find /mnt/data/input && '
-           'for f in $(/bin/ls /mnt/data/input); do '
-           '  echo ${f}; '
-           '  perl /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/variant_effect_predictor.pl '
-           '      --species homo_sapiens '
-           '      --input_file ${f} '
-           '      --force --cache '
-           '      --dir_cache /mnt/data/input/ '
-           '      --offline --cache_version 85 '
-           'done')
+    # Make sure a fastq file(s)have been passed
+    if not vcf:
+        sys.stderr.write(('Please provide input VCF file by passing the '
+                          '`--vcf gs://{bucket}/{my_file}.vcf` argument.'))
+        sys.exit(1)
 
-    # Create the genomics service
-    service = build('genomics', 'v1alpha2', credentials=CREDENTIALS)
+    # Make sure a Google Storage bucket has been passed to store the output
+    if not storage_output:
+        sys.stderr.write(('Please provide a Google Storage output bucket path by passing the '
+                          '`--output_storage gs://{MyOutputBucket}` argument.'))
+        sys.exit(1)
 
-    # Create the pipeline
-    pipeline = {
+    # Make sure a Google Storage bucket has been passed to store the logs
+    if not storage_output:
+        sys.stderr.write(('Please provide a Google Storage log bucket path by passing the '
+                          '`--output_logging gs://{MyLogsBucket}` argument.'))
+        sys.exit(1)
 
-        # Establish the ephemeral pipeline
-        'ephemeralPipeline': {
+    # ===================================================
+    #  Dynamically build the VEP pipeline configuration
+    # ---------------------------------------------------
+    cores = 4
+    memory = 16
+    p = Pipeline(
+        credentials,
+        project,
+        'bwa_test_pipeline',
+        'gcr.io/{project}/vep/85'.format(project=project),
+        storage_output,
+        storage_logging,
+        cores=cores,
+        memory=memory
+    )
 
-            # Project properties
-            'projectId': project,
-            'name': run_name,
-            'description': 'Run samtools on one or more files via Google Genomics',
+    # Mount a 50GB disk to /mnt/data
+    disk = 'datadisk'
+    mount = '/mnt/data'
+    p.add_disk(disk, mount, size=50)
 
-            # Resources
-            'resources': {
+    # Instruct the pipeline to transfer all the input fastqs to the mounted disk
+    for v in vcf:
+        p.add_input(disk, v)
 
-                # Create a data disk that is attached to the VM and destroyed when the
-                # pipeline terminates.
-                'disks': [{
-                    'name': disk_name,
-                    'autoDelete': True,
-                    'mountPoint': mount_point,
-                }],
-            },
+    # Instruct the pipeline to transfer all the cache files to the mounted disk
+    p.add_input(disk, species_cache_bunde)
 
-            # Specify the Docker image to use along with the command
-            'docker': {
+    # ===================================================
+    #  Create the VEP execution command
+    #    Alternatively, you may construct a command.sh and
+    #    simply execute that script on pipeline start.
+    # ---------------------------------------------------
+    #  Create the output directory, cd into it and run BWA mem.
+    #  ------
+    #    mkdir -p /mnt/data/output
+    #    cd /mnt/data/output
+    #    perl variant_effect_predictor.pl \
+    #       --species homo_sapiens \
+    #       --input_file example_GRCh38.vcf \
+    #       --force \
+    #       --cache \
+    #       --cache_version 85 \
+    #       --dir_cache /cache/ \
+    #       --offline
+    #  perl /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/variant_effect_predictor.pl --species homo_sapiens --input_file /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/example_GRCh38.vcf --force --cache --cache_version 85  --dir_cache /mnt/data/input/ --offline --output_file /mnt/data/input/test.json --json
+    #  ------
+    cmd = 'mkdir -p {mount}/output; '.format(mount=mount)
+    cmd += 'tar zxvf {mount}/input/{species_cache_bunde} -C {mount}/input/; '.format(
+        mount=mount,
+        species_cache_bunde=os.path.basename(species_cache_bunde)
+    )
+    cmd += 'cd {mount}/input; '.format(mount=mount)
+    cmd += 'ls -lah'
 
-                # Docker image name
-                'imageName': docker_image,
+    # Add any extra flags if they are passed
+    if extra_command_flags:
+        cmd += ' {}'.format(extra_command_flags)
+    p.command = cmd
 
-                # Command to run
-                'cmd': cmd,
-            },
+    # Build the BWA pipeline configuration
+    p.build()
 
-            # Copy the passed input files to the VM's input_folder on disk_name fromGS
-            'inputParameters': [{
-                'name': 'inputFile{}'.format(i),
-                'description': 'Input file for: {run_name}'.format(run_name=run_name),
-                'localCopy': {
-                    'path': input_directory + '/',
-                    'disk': disk_name
-                }
-                } for i in range(len(files))],
+    # ===================================================
+    #  Execute the pipeline
+    # ---------------------------------------------------
+    operation = p.run()
 
-            # Copy the processed output files from the VM's input_folder on disk_name to GS
-            'outputParameters': [{
-                'name': 'outputPath',
-                'description': 'Cloud Storage path for where to samtools output',
-                'localCopy': {
-                    'path': '{output_folder}/*'.format(output_folder=output_directory),
-                    'disk': disk_name
-                }
-            }]
-        },
-
-        # Set the resources
-        'pipelineArgs': {
-            'projectId': project,
-
-            # Override the resources needed for this pipeline
-            'resources': {
-
-                # Set the memory
-                'minimumRamGb': memory,
-
-                # Expand any zone short-hand patterns
-                # 'zones': defaults.get_zones(zones),
-
-                # For the data disk, specify the size
-                'disks': [{
-                    'name': disk_name,
-                    'sizeGb': disk_size,
-                }]
-            },
-
-            # Map the input files to the input file keys
-            'inputs': {
-                'inputFile{}'.format(i): f for i, f in enumerate(files)
-            },
-
-            # Pass the user-specified Cloud Storage destination path of the samtools output
-            'outputs': {
-                'outputPath': storage_output
-            },
-
-            # Pass the user-specified Cloud Storage destination for pipeline logging
-            'logging': {
-                'gcsPath': storage_logging
-            }
-        }
-    }
-
-    # Run the pipeline
-    operation = service.pipelines().run(body=pipeline).execute()
-
-    # # Emit the result of the pipeline run submission
-    # pp = pprint.PrettyPrinter(indent=2)
-    # pp.pprint(operation)
-    #
-    # # If requested - poll until the operation reaches completion state ("done: true")
-    # if args.poll_interval > 0:
-    #   completed_op = poller.poll(service, operation, args.poll_interval)
-    #   pp.pprint(completed_op)
-
+    # Printout the response to SDTOUT
+    sys.stdout.write('Pipeline Response:\n')
+    sys.stdout.write(json.dumps(operation, indent=4, sort_keys=True))
+    sys.stdout.write('\n')
 
 if __name__ == "__main__":
     main()
-
