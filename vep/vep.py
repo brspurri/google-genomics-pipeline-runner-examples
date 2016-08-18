@@ -8,8 +8,9 @@ from pipeline_runner import Pipeline
 
 
 @command('vep')
-def vep(species_cache_bunde=None,
-        species_cache_version=None,
+def vep(cache_bunde=None,
+        cache_version=None,
+        species=None,
         vcf=list(),
         project=None,
         storage_output=None,
@@ -48,21 +49,27 @@ def vep(species_cache_bunde=None,
                           '`--project {MyGoogleProject}` argument.'))
         sys.exit(1)
 
-    # Make sure a reference bundle genome has been passed
-    if not species_cache_bunde:
+    # Make sure a cache bundle genome has been passed
+    if not cache_bunde:
         sys.stderr.write(('Please provide a species cache by passing the '
-                          '`--species_cache_bunde gs://{bucket}/{vep_cache}.tar.gz` argument. '
+                          '`--cache_bunde gs://{bucket}/{vep_cache}.tar.gz` argument. '
                           'Example cache: '
                           'ftp://ftp.ensembl.org/pub/release-85/variation/VEP/homo_sapiens_vep_85_GRCh38.tar.gz'))
         sys.exit(1)
 
-    # Make sure a reference genome has been passed
-    if not species_cache_version:
+    # Make sure a cache version has been passed
+    if not cache_version:
         sys.stderr.write(('Please provide a species cache version by passing the '
-                          '`--species_cache_version {cache_version}` argument.'))
+                          '`--cache_version {cache_version}` argument.'))
         sys.exit(1)
 
-    # Make sure a fastq file(s)have been passed
+    # Make sure a species has been passed
+    if not species:
+        sys.stderr.write(('Please provide a species cache version by passing the '
+                          '`--species {species}` argument.'))
+        sys.exit(1)
+
+    # Make sure a VCF file(s)have been passed
     if not vcf:
         sys.stderr.write(('Please provide input VCF file by passing the '
                           '`--vcf gs://{bucket}/{my_file}.vcf` argument.'))
@@ -106,17 +113,21 @@ def vep(species_cache_bunde=None,
         p.add_input(disk, v)
 
     # Instruct the pipeline to transfer all the cache files to the mounted disk
-    p.add_input(disk, species_cache_bunde)
+    p.add_input(disk, cache_bunde)
 
     # ===================================================
     #  Create the VEP execution command
     #    Alternatively, you may construct a command.sh and
     #    simply execute that script on pipeline start.
+    #  The current command below only supports running a
+    #    single VCF file, however, this can easily be
+    #    modified to loop over several input VCFs.
     # ---------------------------------------------------
     #  Create the output directory, cd into it and run BWA mem.
     #  ------
     #    mkdir -p /mnt/data/output
     #    cd /mnt/data/output
+    #    tar zxvf /mnt/data/input/homo_sapiens_cache.tar.gz -C /mnt/data/input/
     #    perl variant_effect_predictor.pl \
     #       --species homo_sapiens \
     #       --input_file example_GRCh38.vcf \
@@ -125,21 +136,33 @@ def vep(species_cache_bunde=None,
     #       --cache_version 85 \
     #       --dir_cache /cache/ \
     #       --offline
+    #       --json
     #  ------
     cmd = 'mkdir -p {mount}/output; '.format(mount=mount)
     cmd += 'tar zxvf {mount}/input/{species_cache_bunde} -C {mount}/input/; '.format(
         mount=mount,
-        species_cache_bunde=os.path.basename(species_cache_bunde)
+        species_cache_bunde=os.path.basename(cache_bunde)
     )
     cmd += 'cd {mount}/input; '.format(mount=mount)
     cmd += 'ls -lah'
+    cmd += ('perl variant_effect_predictor.pl '
+            '   --species {species} '
+            '   --input_file {vcf} '
+            '   --force '
+            '   --dir_cache /mnt/data/input/ --cache --cache_version 85 --offline '
+            '   --output_file /mnt/data/output/{output_file}.json --json').format(
+        species=species,
+        vcf=vcf,
+        output_file=os.path.basename(os.path.splitext(vcf)[0] + '.json')
+    )
 
-    # Add any extra flags if they are passed
+    # Add any extra flags if they are passed.
+    #   Specific plugins can be passed here.
     if extra_command_flags:
         cmd += ' {}'.format(extra_command_flags)
     p.command = cmd
 
-    # Build the BWA pipeline configuration
+    # Build the VEP pipeline configuration
     p.build()
 
     # ===================================================
@@ -151,6 +174,7 @@ def vep(species_cache_bunde=None,
     sys.stdout.write('Pipeline Response:\n')
     sys.stdout.write(json.dumps(operation, indent=4, sort_keys=True))
     sys.stdout.write('\n')
+
 
 if __name__ == "__main__":
     main()

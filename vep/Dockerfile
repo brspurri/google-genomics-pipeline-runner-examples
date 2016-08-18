@@ -80,6 +80,7 @@ RUN wget -c -O /tmp/vep_85.zip https://github.com/Ensembl/ensembl-tools/archive/
 RUN unzip /tmp/vep_85.zip -d /tools/vep/
 WORKDIR /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/
 RUN perl /tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/INSTALL.pl --AUTO a --NO_HTSLIB
+RUN EXPORT PATH=$PATH:/tools/vep/ensembl-tools-release-85/scripts/variant_effect_predictor/variant_effect_predictor.pl
 
 # Install VEP plugins
 # NOTE: This set of plugins is my (brett.spurrier@gmail.com) fork of VEP_plugins and VAX:
