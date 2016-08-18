@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import multiprocessing
 
 from mando import command, main
 from oauth2client.client import GoogleCredentials
@@ -151,10 +152,12 @@ def vep(cache_bunde=None,
             '   --input_file {vcf} '
             '   --force '
             '   --dir_cache /mnt/data/input/ --cache --cache_version 85 --offline '
-            '   --output_file /mnt/data/output/{output_file}.json --json').format(
+            '   --output_file /mnt/data/output/{output_file}.json --json'
+            '   --fork {threads}').format(
         species=species,
         vcf=vcf,
-        output_file=os.path.basename(os.path.splitext(vcf)[0] + '.json')
+        output_file=os.path.basename(os.path.splitext(vcf)[0] + '.json'),
+        threads=multiprocessing.cpu_count()
     )
 
     # Add any extra flags if they are passed.
